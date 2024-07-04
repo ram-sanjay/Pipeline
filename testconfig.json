@@ -1,0 +1,15 @@
+{
+    "ecr-name":"cdk--image",
+    "bucket":"aws-codepipeline",
+    "existing_topic_arn":"arn:aws:sns:ap-south-1::Connected-GSTN-Pipeline",
+    "Site":"Site1",
+    "repo_url":"",
+    "parameter1": "https://buildmgr",
+    "parameter2": "--certs",
+    "parameter3": "CGST-Release-1",
+    "subnet_id": "subnet-",
+    "vpc" : "vpc-",
+    "base-ami":"ami-",
+    "region":"ap-south-1",
+    "account_id":""
+}
