@@ -1,0 +1,37 @@
+version: 0.2
+
+phases:
+
+  build:
+    commands:
+      - |
+      
+        #Install AWS CLI
+        apk add aws-cli
+        
+        echo cdk version : cdk --version
+        echo Python version : python3 --version
+
+        check_status() {
+          if [ "$1" -ne 0 ]; then
+              echo "Status code of the command execution is $1!"
+              aws ec2 deregister-image --image-id $tps_ami_id
+              aws ec2 deregister-image --image-id $tgps_ami_id
+              echo "Deleted AMI's created $tps_ami_id $tgps_ami_id"
+              exit 1
+          fi
+        }
+        
+        #Clone Connected GSTN repo from codecommit
+        git clone $repo_url /Connected_GSTN
+        check_status $?
+        echo Clonning of repo completed from codecommit.
+        
+        cd /Connected_GSTN/Deployment/Deployment_Optimization/CDK
+        
+        #Executing CDK deploy stack
+        echo Executing CDK deploy stack : $deploy_stack
+        echo Public AMI ID which is TPS : $tps_ami_id 
+        echo Internal AMI ID which is tgps : $tgps_ami_id
+        cdk bootstrap 
+        cdk deploy $deploy_stack -c public_ami_id=$tps_ami_id -c internal_ami_id=$tgps_ami_id  --require-approval never

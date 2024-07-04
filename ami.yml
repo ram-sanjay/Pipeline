@@ -1,0 +1,63 @@
+version: 0.2
+env:
+  exported-variables:
+    - tps_ami_id
+    - tgps_ami_id
+phases:
+  build:
+    commands:
+      - |
+        #!/bin/bash
+        
+        #Function to check the status code of the command execution
+        check_status() {
+          if [ "$1" -ne 0 ]; then
+              echo "Status code of the command execution is $1"
+              exit 1
+          fi
+        }
+
+         
+        #Execute TPS ec2 image builder pipeline 
+        echo Executing TPS ec2 image builder pipeline $TPS_IMAGE_BUILDER_PIPELINE_ARN
+        TPS_build_version_arn=`aws imagebuilder start-image-pipeline-execution --image-pipeline-arn $TPS_IMAGE_BUILDER_PIPELINE_ARN --query 'imageBuildVersionArn' --region ap-south-1`
+        check_status $?
+        #remove double quotes
+        TPS_build_version_arn=$(echo "$TPS_build_version_arn" | tr -d '"')
+
+        #Execute TGSP ec2 image builder pipeline 
+        echo Executing TGSP ec2 image builder pipeline $TGSP_IMAGE_BUILDER_PIPELINE_ARN
+        TGSP_build_version_arn=`aws imagebuilder start-image-pipeline-execution --image-pipeline-arn $TGSP_IMAGE_BUILDER_PIPELINE_ARN --query 'imageBuildVersionArn' --region ap-south-1`
+        check_status $?
+        #remove double quotes
+        TGSP_build_version_arn=$(echo "$TGSP_build_version_arn" | tr -d '"')
+
+
+        #Wait till the image is in available state
+        cont_loop=1
+        while [ $cont_loop -eq 1 ]
+        do
+        TPS_status=`aws imagebuilder get-image --image-build-version-arn $TPS_build_version_arn --query 'image.state.status' --output text --region ap-south-1`
+        TGSP_status=`aws imagebuilder get-image --image-build-version-arn $TGSP_build_version_arn --query 'image.state.status' --output text --region ap-south-1`
+        check_status $?
+        if [ "$TPS_status" == "AVAILABLE" ] && [ "$TGSP_status" == "AVAILABLE" ]
+        then
+        cont_loop=0
+        elif [ "$TPS_status" == "FAILED" ] || [ "$TGSP_status" == "FAILED" ]
+        then
+        exit 1
+        else
+        echo "TPS Image build status - $TPS_status"
+        echo "TGSP Image build status - $TGSP_status"
+        sleep 180
+        fi
+        done
+
+        #Fetch the AMI ID
+        tps_ami_id=`aws imagebuilder get-image --image-build-version-arn $TPS_build_version_arn --query 'image.outputResources.amis[0].image' --output text --region ap-south-1`
+        check_status $?
+        echo TPS ami_id : $tps_ami_id
+
+        tgps_ami_id=`aws imagebuilder get-image --image-build-version-arn $TGSP_build_version_arn --query 'image.outputResources.amis[0].image' --output text --region ap-south-1`
+        check_status $?
+        echo TGSP ami_id : $tgps_ami_id

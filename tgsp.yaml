@@ -1,0 +1,99 @@
+name: Connected-GSTN TGSP AMI
+description: This is Connected-GSTN component.
+schemaVersion: 1.0
+ 
+parameters:
+  - InputParameter1:
+      type: string
+      description: Enter Clone URL
+ 
+  - InputParameter2:
+      type: string
+      description: Enter S3 Bucket where certs file exists
+      
+  - InputParameter3:
+      type: string
+      description: Enter branch name 
+phases:
+  - name: build
+    steps:
+      - name: TGSP-Component
+        action: ExecuteBash
+        inputs:
+          commands:
+            - sudo su - ubuntu
+            - sudo apt -y update
+
+            - echo Installing js
+            - sudo apt -y install jq
+
+            - echo Installing AWS CLI
+            - sudo apt -y install awscli
+       
+            - #Pull the build file from bitbucket
+            - echo Clonning Repo from bit bucket to /home/ubuntu/code.tgps
+            - git clone -b {{InputParameter3}} {{InputParameter1}} /home/ubuntu/code.tgps
+            - cd /home/ubuntu/code.tgps
+            - sudo npm ci
+            
+            - #Fetch values from parameter store
+            - echo Fetching GSTN_PUBLIC_CERT_NAME and PUBLIC_AUTH_API_PATH values from parameter store
+            - GSTN_PUBLIC_CERT_NAME=$(aws ssm get-parameter --name "GSTN_PUBLIC_CERT_NAME" --query "Parameter.Value" --region ap-south-1)
+            - PUBLIC_AUTH_API_PATH=$(aws ssm get-parameter --name "PUBLIC_AUTH_API_PATH" --query "Parameter.Value" --region ap-south-1)
+            
+            - #Remove double quotes
+            - GSTN_PUBLIC_CERT_NAME="${GSTN_PUBLIC_CERT_NAME//\"}"
+            - PUBLIC_AUTH_API_PATH="${PUBLIC_AUTH_API_PATH//\"}"
+            - echo GSTN_PUBLIC_CERT_NAME:$GSTN_PUBLIC_CERT_NAME
+            - echo PUBLIC_AUTH_API_PATH:$PUBLIC_AUTH_API_PATH
+
+            - #Copying TGSPconfig.env to config.env
+            - echo Copying TGSPconfig.env to config.env
+            - cp /home/ubuntu/code.tgps/res/configuration/TGSPconfig.env /home/ubuntu/code.tgps/res/configuration/config.env
+            
+            - #Replace GSTN_PUBLIC_CERT_NAME and PUBLIC_AUTH_API_PATH values in config file 
+            - echo Replaceing GSTN_PUBLIC_CERT_NAME and PUBLIC_AUTH_API_PATH values in config file 
+            - sed -i "s/^\(GSTN_PUBLIC_CERT_NAME\s*=\s*\).*/\1$GSTN_PUBLIC_CERT_NAME/" /home/ubuntu/code.tgps/res/configuration/config.env
+            - sed -i "s#^\(PUBLIC_AUTH_API_PATH\s*=\s*\).*#\1${PUBLIC_AUTH_API_PATH//\//\\/}#" /home/ubuntu/code.tgps/res/configuration/config.env
+
+            - echo Updating USE_VALIDATE_TALLY_HEADERS in config file to 0
+            - sed -i 's/^\(USE_VALIDATE_TALLY_HEADERS[[:space:]]*=[[:space:]]*\).*/\10/' /home/ubuntu/code.tgps/res/configuration/config.env
+
+            - # Copying server.key and server.crt from s3 to build file
+
+            - echo Copying Certs.zip from s3 bucket {{InputParameter2}} to /home/ubuntu/code.tgps
+            - aws s3 cp s3://{{InputParameter2}}/Certs.zip /home/ubuntu/code.tgps
+            - echo extracting Certs.zip
+            - unzip Certs.zip
+            - ls
+
+            - echo Copying server.key to /home/ubuntu/code.tgps/res/ssl/keys/private/
+            - cp server.key /home/ubuntu/code.tgps/res/ssl/keys/private/
+ 
+            - echo Copying server.crt to /home/ubuntu/code.tgps/res/ssl/certs/
+            - cp server.crt /home/ubuntu/code.tgps/res/ssl/certs/
+
+            - echo Copying GSTN_G2B_Prod_public.pem to /home/ubuntu/code.tgps/res/ssl/keys/public
+            - cp GSTN_G2B_Prod_public.pem /home/ubuntu/code.tgps/res/ssl/keys/public
+
+            - dos2unix /home/ubuntu/code.tpgs/src/logRotationScripts/rotateAuditLogs.sh 
+
+            - #Update schema file
+            - echo Updating schema file to replace sbfiles with g2bfiles.internal and devapi with gspapi.internal
+            - jq '. |= (walk(if type == "string" then gsub("sbfiles"; "g2bfiles.internal") else . end))' /home/ubuntu/code.tgps/res/schemas/TGSPschema.json > temp && mv temp /home/ubuntu/code.tgps/res/schemas/TGSPschema.json
+            - jq '. |= (walk(if type == "string" then gsub("devapi"; "gspapi.internal") else . end))' /home/ubuntu/code.tgps/res/schemas/TGSPschema.json > temp && mv temp /home/ubuntu/code.tgps/res/schemas/TGSPschema.json
+
+            - echo crontab setup
+            - tgspAuditLogsBucket=$(aws ssm get-parameter --name "TGSP-AUDIT-LOGS-BUCKET" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+            - echo tpsLogsBucket:$tgspAuditLogsBucket
+            - keysBucket=$(aws ssm get-parameter --name "KEYS-BUCKET" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+            - echo keysBucket:$keysBucket
+            - gspPublicKeyName=$(aws ssm get-parameter --name "GSP-PUBLIC-KEY-NAME" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+            - echo gspPublicKeyName:$gspPublicKeyName
+            - gspPrivateKeyName=$(aws ssm get-parameter --name "GSP-PRIVATE-KEY-NAME" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+            - echo gspPrivateKeyName:$gspPrivateKeyName
+            - tgspFolder=$(aws ssm get-parameter --name "TGSP-FOLDER" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+            - echo tgspFolder:$tgspFolder
+            - echo "*/2 * * * * cd /home/ubuntu/code.tgps/logs/audit && /bin/bash /home/ubuntu/code.tgps/src/logRotationScripts/rotateAuditLogs.sh $tgspAuditLogsBucket $keysBucket $gspPrivateKeyName $gspPublicKeyName $tgspFolder >> /home/ubuntu/cronAuditLog2MinRotation.log" > mycron
+            - crontab mycron
+            - echo TGSP Cron configured 

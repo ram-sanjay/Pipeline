@@ -1,0 +1,32 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+     - |
+       
+        #Function to check the status code of the command execution
+        check_status() {
+          if [ "$1" -ne 0 ]; then
+
+              echo "Status code of the command execution is $1!"
+              exit 1
+          fi
+        }
+
+        #Clone Connected GSTN repo from codecommit
+        git clone $repo_url /Connected_GSTN
+        echo Clonning of repo completed from codecommit.
+        check_status $?
+        cd /Connected_GSTN/Deployment/Deployment_Optimization/CDK
+        
+        if [ "$site" == "Site1" ]; then
+        echo "Destroying Site2 stack"
+        cdk destroy  Site2 -c public_ami_id=ami-09f7c086921443890 -c internal_ami_id=ami-032b18eed16059111 --force
+        check_status $?
+        else
+        echo "Destroying Site1 stack"
+        cdk destroy  Site1 -c public_ami_id=ami-09f7c086921443890 -c internal_ami_id=ami-032b18eed16059111 --force
+        check_status $?
+        fi
+       

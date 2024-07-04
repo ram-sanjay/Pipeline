@@ -1,0 +1,15 @@
+{
+    "ecr-name":"cdk-deployment-image",
+    "bucket":"aws-codepipeline",
+    "existing_topic_arn":"arn:aws:sns:ap-south-1:963011460273:Connected-GSTN-Pipeline",
+    "Site":"Site1",
+    "repo_url":"https://code-commit-readOnly-access-at-893337576052:gxqyvRCk98zYDWobi5hoCiGfFVzKBlNmgQUxPynIoeg%3D@git-codecommit.ap-south-1.amazonaws.com/v1/repos/Cloudops.ConnectedGSTN",
+    "parameter1": "https://buildmgr.dev:Bu%21lD%24deV%233961@tallygit.tallysolutions.com/scm/congst/code.tgps.git",
+    "parameter2": "connected-gstn-certs",
+    "parameter3": "CGST-Release-1",
+    "subnet_id": "subnet-0ea0a6a1b7c7328d4",
+    "vpc" : "vpc-04dd86b20dc1e705c",
+    "base-ami":"ami-0640fbdc26540d3b7",
+    "region":"ap-south-1",
+    "account_id":"963011460273"
+}

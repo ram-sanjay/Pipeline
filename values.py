@@ -37,8 +37,13 @@ class PipelineStack(Stack):
         parameter3 = [config.get('parameter3')]
         vpc = config.get('vpc')
         subnet_id = config.get('subnet_id')
-        tpsbaseami = config.get('base-ami')
-        tgspbaseami = config.get('base-ami')
+        tpsbaseami = config.get('tps-base-ami')
+        tgspbaseami = config.get('tgsp-base-ami')
+        KeysBucket = [config.get('KeysBucket')]
+        PrivateKey = [config.get('PrivateKey')]
+        PublicKey = [config.get('PublicKey')]
+        TgspLogsBucket = [config.get('TgspLogsBucket')]
+        TpsLogsBucket = [config.get('TpsLogsBucket')]
 
         existing_vpc = ec2.Vpc.from_lookup(
             self,
@@ -55,14 +60,12 @@ class PipelineStack(Stack):
         security_group.add_ingress_rule(
             ec2.Peer.any_ipv4(),
             ec2.Port.tcp(22),
+            "Allow SSH access from anywhere",
         )
         security_group.add_ingress_rule(
             ec2.Peer.any_ipv4(),
             ec2.Port.tcp(443),
-        )
-        security_group.add_ingress_rule(
-            ec2.Peer.any_ipv4(),
-            ec2.Port.tcp(80),
+            "Allow SSH access from anywhere",
         )
         security_group_id = [security_group.security_group_id]
 
@@ -71,7 +74,7 @@ class PipelineStack(Stack):
             "TPSComponent",
             name="TPS-component",
             platform="Linux",
-            version="1.4.1",
+            version="1.1.2",
             data=tps_yaml_content,
         )
 
@@ -94,7 +97,7 @@ class PipelineStack(Stack):
             "TPSRecipe",
             name="TPS-recipe",
             parent_image=tpsbaseami,
-            version="1.4.1",
+            version="1.1.2",
             components=[
                 imagebuilder.CfnImageRecipe.ComponentConfigurationProperty(
                     component_arn=TPS_component.attr_arn,
@@ -106,6 +109,22 @@ class PipelineStack(Stack):
                         imagebuilder.CfnImageRecipe.ComponentParameterProperty(
                             name="InputParameter2",
                             value=parameter2
+                        ),
+                        imagebuilder.CfnImageRecipe.ComponentParameterProperty(
+                            name="KeysBucket",
+                            value=KeysBucket
+                        ),
+                        imagebuilder.CfnImageRecipe.ComponentParameterProperty(
+                            name="PrivateKey",
+                            value=PrivateKey
+                        ),
+                        imagebuilder.CfnImageRecipe.ComponentParameterProperty(
+                            name="PublicKey",
+                            value=PublicKey
+                        ),
+                        imagebuilder.CfnImageRecipe.ComponentParameterProperty(
+                            name="LogsBucket",
+                            value=TpsLogsBucket
                         ),
                         imagebuilder.CfnImageRecipe.ComponentParameterProperty(
                             name="InputParameter3",
@@ -163,7 +182,7 @@ class PipelineStack(Stack):
             "TGSPComponent",
             name="TGSP-component",
             platform="Linux",
-            version="1.4.1",
+            version="1.1.2",
             data=tgsp_yaml_content,
         )
 
@@ -187,7 +206,7 @@ class PipelineStack(Stack):
             "TGSPRecipe",
             name="TGSP-recipe",
             parent_image=tgspbaseami,
-            version="1.4.1",
+            version="1.1.2",
             components=[
                 imagebuilder.CfnImageRecipe.ComponentConfigurationProperty(
                     component_arn=TGSP_component.attr_arn,
@@ -199,6 +218,22 @@ class PipelineStack(Stack):
                         imagebuilder.CfnImageRecipe.ComponentParameterProperty(
                             name="InputParameter2",
                             value=parameter2
+                        ),
+                        imagebuilder.CfnImageRecipe.ComponentParameterProperty(
+                            name="KeysBucket",
+                            value=KeysBucket
+                        ),
+                        imagebuilder.CfnImageRecipe.ComponentParameterProperty(
+                            name="PrivateKey",
+                            value=PrivateKey
+                        ),
+                        imagebuilder.CfnImageRecipe.ComponentParameterProperty(
+                            name="PublicKey",
+                            value=PublicKey
+                        ),
+                        imagebuilder.CfnImageRecipe.ComponentParameterProperty(
+                            name="LogsBucket",
+                            value=TgspLogsBucket
                         ),
                         imagebuilder.CfnImageRecipe.ComponentParameterProperty(
                             name="InputParameter3",
@@ -301,9 +336,6 @@ class PipelineStack(Stack):
         )
         ami_creation.apply_removal_policy(cdk.RemovalPolicy.DESTROY)
 
-        subnet = ec2.Subnet.from_subnet_id(self, "Subnet", subnet_id)
-        subnet_selection = ec2.SubnetSelection(subnets=[subnet])
-
         e2e_check = codebuild.Project(
             self,
             "E2ECheck",
@@ -314,16 +346,12 @@ class PipelineStack(Stack):
                 build_image=codebuild.LinuxBuildImage.AMAZON_LINUX_2_5,
                 compute_type=codebuild.ComputeType.SMALL,
             ),
-            vpc=existing_vpc,
-            subnet_selection= subnet_selection,
-            security_groups=[security_group],
             role=iam.Role(
                 self,
                 "E2EServiceRole",
                 assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
                 managed_policies=[
                     iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMFullAccess"),
-                    iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2FullAccess"),
                 ],
             ),
         )
@@ -456,8 +484,7 @@ class PipelineStack(Stack):
                             environment_variables={
                                 "repo_url": codebuild.BuildEnvironmentVariable(value="#{variables.repo_url}"),
                                 "Site": codebuild.BuildEnvironmentVariable(value="#{variables.Site}"),
-                                "tps_ami_id": codebuild.BuildEnvironmentVariable(value="#{AMI-ID.tps_ami_id}"),
-                                "tgps_ami_id": codebuild.BuildEnvironmentVariable(value="#{AMI-ID.tgps_ami_id}"),
+                                
                             },
                         )
                     ]
@@ -497,3 +524,12 @@ with open('config.json', 'r') as config_file:
 env = cdk.Environment(account=config.get('account_id'), region=config.get('region'))
 PipelineStack(app, "PipelineStack", env=env)
 app.synth()
+
+
+
+,
+    "KeysBucket":"tgsp-gs-prod-signingkeys",
+    "PrivateKey":"gsp-qa-prv",
+    "PublicKey":"gsp-qa-pub",
+    "TpsLogsBucket":"tps-gs-signed-logs",
+    "TgspLogsBucket":"tgsp-gs-signed-logs"

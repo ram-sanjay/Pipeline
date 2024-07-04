@@ -1,0 +1,84 @@
+name: Connected-GSTN TPS AMI
+description: This is Connected-GSTN component.
+schemaVersion: 1.0
+parameters:
+  - InputParameter1:
+      type: string
+      description: Enter Clone URL
+  - InputParameter2:
+      type: string
+      description: Enter S3 Bucket where schema.json file exists
+  - InputParameter3:
+      type: string
+      description: Enter branch name 
+
+phases:
+  - name: build
+    steps:
+      - name: TPS-Component
+        action: ExecuteBash
+        inputs:
+          commands:
+            - sudo su - ubuntu
+            - sudo apt -y update
+ 
+            - echo Installing jq
+            - sudo apt -y install jq
+ 
+            - echo Installing AWS CLI
+            - sudo apt -y install awscli
+ 
+            - echo Clonning Repo from bit bucket to /home/ubuntu/code.tgps
+            - git clone -b {{InputParameter3}} {{InputParameter1}} /home/ubuntu/code.tgps
+            - cd /home/ubuntu/code.tgps
+
+            - sudo npm ci
+
+            - #Copying TPSconfig.env to config.env
+            - echo Copying TPSconfig.env to config.env
+            - cp /home/ubuntu/code.tgps/res/configuration/TPSconfig.env /home/ubuntu/code.tgps/res/configuration/config.env
+
+            - echo Fetching domain value from parameter store
+            - domain=$(aws ssm get-parameter --name "domain" --query "Parameter.Value" --region ap-south-1)
+            - domain_value="${domain//\"}"
+            - echo Domain Value fetched parameter store is $domain_value
+            - echo Updating domain value $domain_value in /home/ubuntu/code.tgps/res/schemas/TPSschema.json
+            - jq --arg new_domain_value $domain_value '(.. | objects) |= if has("domain") then .domain = $new_domain_value else . end' /home/ubuntu/code.tgps/res/schemas/TPSschema.json > temp.json && mv temp.json /home/ubuntu/code.tgps/res/schemas/TPSschema.json
+
+            - echo Updating config file to update SCHEMA_FILENAME as TPSschema.json
+            - sed -i "s#^\(SCHEMA_FILENAME\s*=\s*\).*#\1"TPSschema.json"#" /home/ubuntu/code.tgps/res/configuration/config.env
+ 
+            - echo Adding ca-certificate-path after every domain in /home/ubuntu/code.tgps/res/schemas/TPSschema.json file
+            - | 
+              new_json=$(cat /home/ubuntu/code.tgps/res/schemas/TPSschema.json | jq 'walk(if type == "object" then with_entries(if .key == "domain" then ., {key: "ca-certificate-path", value: "../ssl/certs/ca.crt" } else . end) else . end)')
+            - echo $new_json | jq '.' > /home/ubuntu/code.tgps/res/schemas/TPSschema.json
+ 
+            - echo Copying Certs.zip from s3 bucket {{InputParameter2}} to /home/ubuntu/code.tgps
+            - aws s3 cp s3://{{InputParameter2}}/Certs.zip /home/ubuntu/code.tgps
+            - echo Extracting Certs.zip
+            - unzip Certs.zip
+            - ls
+ 
+            - echo Copying server.key to /home/ubuntu/code.tgps/res/ssl/keys/private/
+            - cp server.key /home/ubuntu/code.tgps/res/ssl/keys/private/
+ 
+            - echo Copying server.crt to /home/ubuntu/code.tgps/res/ssl/certs/
+            - cp server.crt /home/ubuntu/code.tgps/res/ssl/certs/
+ 
+            - echo Copying ca.crt to /home/ubuntu/code.tgps/res/ssl/certs/
+            - cp ca.crt /home/ubuntu/code.tgps/res/ssl/certs/
+
+            - echo crontab setup
+            - tpsLogsBucket=$(aws ssm get-parameter --name "TPS-AUDIT-LOGS-BUCKET" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+            - echo tpsLogsBucket:$tpsLogsBucket
+            - keysBucket=$(aws ssm get-parameter --name "KEYS-BUCKET" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+            - echo keysBucket:$keysBucket
+            - gspPublicKeyName=$(aws ssm get-parameter --name "GSP-PUBLIC-KEY-NAME" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+            - echo gspPublicKeyName:$gspPublicKeyName
+            - gspPrivateKeyName=$(aws ssm get-parameter --name "GSP-PRIVATE-KEY-NAME" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+            - echo gspPrivateKeyName:$gspPrivateKeyName
+            - tpsFolder=$(aws ssm get-parameter --name "TPS-FOLDER" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+            - echo tpsFolder:$tpsFolder
+            - echo "*/2 * * * * cd /home/ubuntu/code.tgps/logs/audit && /bin/bash /home/ubuntu/code.tgps/src/logRotationScripts/rotateAuditLogs.sh $tpsLogsBucket $keysBucket $gspPrivateKeyName $gspPublicKeyName $tpsFolder >> /home/ubuntu/cronAuditLog2MinRotation.log" > mycron
+            - crontab mycron
+            - echo TPS Cron configured 
